@@ -1,5 +1,32 @@
 package com.splunk.logging;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.Serializable;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.security.KeyStore;
+import java.security.SecureRandom;
+import java.security.cert.CertificateException;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+import java.util.Timer;
+import java.util.TimerTask;
+import java.util.UUID;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
+
+import javax.net.ssl.HostnameVerifier;
+import javax.net.ssl.KeyManagerFactory;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLSession;
+import javax.net.ssl.SSLSocketFactory;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.TrustManagerFactory;
+import javax.net.ssl.X509TrustManager;
+
 /**
  * @copyright
  *
@@ -17,24 +44,27 @@ package com.splunk.logging;
  * License for the specific language governing permissions and limitations
  * under the License.
  */
-
-import com.google.gson.*;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.JsonObject;
 import com.splunk.logging.hec.MetadataTags;
 import com.splunk.logging.serialization.EventInfoTypeAdapter;
 import com.splunk.logging.serialization.HecJsonSerializer;
-import okhttp3.*;
 
-import javax.net.ssl.*;
-import java.io.IOException;
-import java.io.Serializable;
-import java.security.cert.CertificateException;
-import java.util.*;
-import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
-
+import okhttp3.Call;
+import okhttp3.Callback;
+import okhttp3.Dispatcher;
+import okhttp3.HttpUrl;
+import okhttp3.MediaType;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.RequestBody;
+import okhttp3.Response;
+import okhttp3.ResponseBody;
 
 /**
- * This is an internal helper class that sends logging events to Splunk http event collector.
+ * This is an internal helper class that sends logging events to Splunk http
+ * event collector.
  */
 public class HttpEventCollectorSender extends TimerTask implements HttpEventCollectorMiddleware.IHttpSender {
     private static final String ChannelQueryParam = "channel";
@@ -42,27 +72,23 @@ public class HttpEventCollectorSender extends TimerTask implements HttpEventColl
     private static final String AuthorizationHeaderScheme = "Splunk %s";
     private static final String HttpEventCollectorUriPath = "/services/collector/event/1.0";
     private static final String HttpRawCollectorUriPath = "/services/collector/raw";
-    private static final String JsonHttpContentType = "application/json; profile=urn:splunk:event:1.0; charset=utf-8";
+    private static final String JsonHttpContentType = "application/json; charset=utf-8";
     private static final String PlainTextHttpContentType = "plain/text; charset=utf-8";
     private static final String SendModeSequential = "sequential";
     private static final String SendModeSParallel = "parallel";
     private TimeoutSettings timeoutSettings = new TimeoutSettings();
     private static final Gson gson = new GsonBuilder()
-            .registerTypeAdapter(HttpEventCollectorEventInfo.class, new EventInfoTypeAdapter())
-            .create();
+            .registerTypeAdapter(HttpEventCollectorEventInfo.class, new EventInfoTypeAdapter()).create();
 
     private final HecJsonSerializer serializer;
 
-
     /**
-     * Sender operation mode. Parallel means that all HTTP requests are
-     * asynchronous and may be indexed out of order. Sequential mode guarantees
-     * sequential order of the indexed events.
+     * Sender operation mode. Parallel means that all HTTP requests are asynchronous
+     * and may be indexed out of order. Sequential mode guarantees sequential order
+     * of the indexed events.
      */
-    public enum SendMode
-    {
-        Sequential,
-        Parallel
+    public enum SendMode {
+        Sequential, Parallel
     };
 
     /**
@@ -81,7 +107,8 @@ public class HttpEventCollectorSender extends TimerTask implements HttpEventColl
     private Timer timer;
     private List<HttpEventCollectorEventInfo> eventsBatch = new LinkedList<HttpEventCollectorEventInfo>();
     private long eventsBatchSize = 0; // estimated total size of events batch
-    private static final OkHttpClient httpSharedClient = new OkHttpClient(); // shared instance with the default settings
+    private static final OkHttpClient httpSharedClient = new OkHttpClient(); // shared instance with the default
+                                                                             // settings
     private OkHttpClient httpClient = null; // shares the same connection pool and thread pools with the shared instance
     private boolean disableCertificateValidation = false;
     private SendMode sendMode = SendMode.Sequential;
@@ -89,19 +116,19 @@ public class HttpEventCollectorSender extends TimerTask implements HttpEventColl
 
     /**
      * Initialize HttpEventCollectorSender
-     * @param Url http event collector input server
-     * @param token application token
-     * @param delay batching delay
+     * 
+     * @param Url                 http event collector input server
+     * @param token               application token
+     * @param delay               batching delay
      * @param maxEventsBatchCount max number of events in a batch
-     * @param maxEventsBatchSize max size of batch
-     * @param metadata events metadata
-     * @param channel unique GUID for the client to send raw events to the server
-     * @param type event data type
+     * @param maxEventsBatchSize  max size of batch
+     * @param metadata            events metadata
+     * @param channel             unique GUID for the client to send raw events to
+     *                            the server
+     * @param type                event data type
      */
-    public HttpEventCollectorSender(
-            final String Url, final String token, final String channel, final String type,
-            long delay, long maxEventsBatchCount, long maxEventsBatchSize,
-            String sendModeStr,
+    public HttpEventCollectorSender(final String Url, final String token, final String channel, final String type,
+            long delay, long maxEventsBatchCount, long maxEventsBatchSize, String sendModeStr,
             Map<String, String> metadata, TimeoutSettings timeoutSettings) {
         this.token = token;
         this.channel = channel;
@@ -116,11 +143,10 @@ public class HttpEventCollectorSender extends TimerTask implements HttpEventColl
             }
             HttpUrl fullUrl = HttpUrl.parse(Url + HttpRawCollectorUriPath);
             if (fullUrl == null) {
-                throw new IllegalArgumentException(String.format("Unparseable URL argument: %s",  Url + HttpEventCollectorUriPath));
+                throw new IllegalArgumentException(
+                        String.format("Unparseable URL argument: %s", Url + HttpEventCollectorUriPath));
             }
-            HttpUrl.Builder urlBuilder = fullUrl
-                    .newBuilder()
-                    .addQueryParameter(ChannelQueryParam, channel);
+            HttpUrl.Builder urlBuilder = fullUrl.newBuilder().addQueryParameter(ChannelQueryParam, channel);
             metadata.forEach(urlBuilder::addQueryParameter);
             this.url = urlBuilder.build();
         } else {
@@ -139,7 +165,8 @@ public class HttpEventCollectorSender extends TimerTask implements HttpEventColl
 
         serializer = new HecJsonSerializer(metadata);
         final String format = metadata.get(MetadataTags.MESSAGEFORMAT);
-        // Get MessageFormat enum from format string. Do this once per instance in constructor to avoid expensive operation in
+        // Get MessageFormat enum from format string. Do this once per instance in
+        // constructor to avoid expensive operation in
         // each event sender call
 
         if (sendModeStr != null) {
@@ -163,23 +190,18 @@ public class HttpEventCollectorSender extends TimerTask implements HttpEventColl
     }
 
     /**
-     * Send a single logging event in case of batching the event isn't sent immediately
+     * Send a single logging event in case of batching the event isn't sent
+     * immediately
+     * 
      * @param severity event severity level (info, warning, etc.)
-     * @param message event text
+     * @param message  event text
      */
-    public synchronized void send(
-    		final long timeMsSinceEpoch,
-            final String severity,
-            final String message,
-            final String logger_name,
-            final String thread_name,
-            Map<String, String> properties,
-            final String exception_message,
-            Serializable marker
-    ) {
+    public synchronized void send(final long timeMsSinceEpoch, final String severity, final String message,
+            final String logger_name, final String thread_name, Map<String, String> properties,
+            final String exception_message, Serializable marker) {
         // create event info container and add it to the batch
-        HttpEventCollectorEventInfo eventInfo =
-                new HttpEventCollectorEventInfo(timeMsSinceEpoch, severity, message, logger_name, thread_name, properties, exception_message, marker);
+        HttpEventCollectorEventInfo eventInfo = new HttpEventCollectorEventInfo(timeMsSinceEpoch, severity, message,
+                logger_name, thread_name, properties, exception_message, marker);
         eventsBatch.add(eventInfo);
         eventsBatchSize += severity.length() + message.length();
         if (eventsBatch.size() >= maxEventsBatchCount || eventsBatchSize > maxEventsBatchSize) {
@@ -188,7 +210,9 @@ public class HttpEventCollectorSender extends TimerTask implements HttpEventColl
     }
 
     /**
-     * Send a single logging event with message only in case of batching the event isn't sent immediately
+     * Send a single logging event with message only in case of batching the event
+     * isn't sent immediately
+     * 
      * @param message event text
      */
     public synchronized void send(final String message) {
@@ -236,8 +260,8 @@ public class HttpEventCollectorSender extends TimerTask implements HttpEventColl
     }
 
     /**
-     * Disable https certificate validation of the splunk server.
-     * This functionality is for development purpose only.
+     * Disable https certificate validation of the splunk server. This functionality
+     * is for development purpose only.
      */
     public void disableCertificateValidation() {
         disableCertificateValidation = true;
@@ -261,16 +285,17 @@ public class HttpEventCollectorSender extends TimerTask implements HttpEventColl
         }
     }
 
-
     private void stopHttpClient() {
         if (httpClient != null) {
             Dispatcher dispatcher = httpClient.dispatcher();
             httpClient = null;
 
             if (timeoutSettings.terminationTimeout > 0) {
-                // wait for queued messages in the dispatcher to be promoted to the executor service
+                // wait for queued messages in the dispatcher to be promoted to the executor
+                // service
                 long start = System.currentTimeMillis();
-                while (dispatcher.queuedCallsCount() > 0 && start + timeoutSettings.terminationTimeout > System.currentTimeMillis()) {
+                while (dispatcher.queuedCallsCount() > 0
+                        && start + timeoutSettings.terminationTimeout > System.currentTimeMillis()) {
                     try {
                         TimeUnit.MILLISECONDS.sleep(10);
                     } catch (InterruptedException e) {
@@ -283,7 +308,8 @@ public class HttpEventCollectorSender extends TimerTask implements HttpEventColl
                 dispatcher.executorService().shutdown();
 
                 // wait for the messages in the dispatcher's executor service to be sent out
-                long awaitTerminationTimeout = timeoutSettings.terminationTimeout - (System.currentTimeMillis() - start);
+                long awaitTerminationTimeout = timeoutSettings.terminationTimeout
+                        - (System.currentTimeMillis() - start);
                 if (awaitTerminationTimeout > 0) {
                     try {
                         dispatcher.executorService().awaitTermination(awaitTerminationTimeout, TimeUnit.MILLISECONDS);
@@ -305,7 +331,7 @@ public class HttpEventCollectorSender extends TimerTask implements HttpEventColl
 
         OkHttpClient.Builder builder = httpSharedClient.newBuilder();
 
-        // limit max  number of async requests in sequential mode
+        // limit max number of async requests in sequential mode
         if (sendMode == SendMode.Sequential) {
             Dispatcher dispatcher = new Dispatcher();
             dispatcher.setMaxRequests(1);
@@ -313,22 +339,22 @@ public class HttpEventCollectorSender extends TimerTask implements HttpEventColl
         }
 
         if (disableCertificateValidation) {
-            final TrustManager[] trustAllCerts = new TrustManager[]{
-                    new X509TrustManager() {
-                        @Override
-                        public void checkClientTrusted(java.security.cert.X509Certificate[] chain, String authType) throws CertificateException {
-                        }
+            final TrustManager[] trustAllCerts = new TrustManager[] { new X509TrustManager() {
+                @Override
+                public void checkClientTrusted(java.security.cert.X509Certificate[] chain, String authType)
+                        throws CertificateException {
+                }
 
-                        @Override
-                        public void checkServerTrusted(java.security.cert.X509Certificate[] chain, String authType) throws CertificateException {
-                        }
+                @Override
+                public void checkServerTrusted(java.security.cert.X509Certificate[] chain, String authType)
+                        throws CertificateException {
+                }
 
-                        @Override
-                        public java.security.cert.X509Certificate[] getAcceptedIssuers() {
-                            return new java.security.cert.X509Certificate[]{};
-                        }
-                    }
-            };
+                @Override
+                public java.security.cert.X509Certificate[] getAcceptedIssuers() {
+                    return new java.security.cert.X509Certificate[] {};
+                }
+            } };
 
             try {
                 // install the all-trusting trust manager
@@ -337,50 +363,50 @@ public class HttpEventCollectorSender extends TimerTask implements HttpEventColl
                 // create an ssl socket factory with the all-trusting manager
                 final SSLSocketFactory sslSocketFactory = sslContext.getSocketFactory();
                 builder.sslSocketFactory(sslSocketFactory, (X509TrustManager) trustAllCerts[0]);
-            } catch (Exception ignored) { /* nop */ }
+            } catch (Exception ignored) {
+                /* nop */ }
 
             builder.hostnameVerifier(new HostnameVerifier() {
+
                 @Override
                 public boolean verify(String hostname, SSLSession session) {
                     return true;
                 }
+
             });
         }
 
+        this.configureHttpClientForMutualAuthentication(builder);
         httpClient = builder.build();
     }
 
     private void postEventsAsync(final List<HttpEventCollectorEventInfo> events) {
-        this.middleware.postEvents(events,  this, new HttpEventCollectorMiddleware.IHttpSenderCallback() {
+        this.middleware.postEvents(events, this, new HttpEventCollectorMiddleware.IHttpSenderCallback() {
 
             @Override
             public void completed(int statusCode, String reply) {
                 if (statusCode != 200) {
-                    HttpEventCollectorErrorHandler.error(
-                            events,
+                    HttpEventCollectorErrorHandler.error(events,
                             new HttpEventCollectorErrorHandler.ServerErrorException(reply));
                 }
             }
 
             @Override
             public void failed(Exception ex) {
-                HttpEventCollectorErrorHandler.error(
-                        events,
+                HttpEventCollectorErrorHandler.error(events,
                         new HttpEventCollectorErrorHandler.ServerErrorException(ex.getMessage()));
             }
         });
     }
 
     public void postEvents(final List<HttpEventCollectorEventInfo> events,
-                           final HttpEventCollectorMiddleware.IHttpSenderCallback callback) {
+            final HttpEventCollectorMiddleware.IHttpSenderCallback callback) {
         startHttpClient(); // make sure http client is started
         // create http request
-        Request.Builder requestBldr = new Request.Builder()
-                .url(url)
-                .addHeader(AuthorizationHeaderTag, String.format(AuthorizationHeaderScheme, token));
+        Request.Builder requestBldr = new Request.Builder().url(url).addHeader(AuthorizationHeaderTag,
+                String.format(AuthorizationHeaderScheme, token));
         if ("Raw".equalsIgnoreCase(type)) {
-            String lineSeparatedEvents = events.stream()
-                    .map(HttpEventCollectorEventInfo::getMessage)
+            String lineSeparatedEvents = events.stream().map(HttpEventCollectorEventInfo::getMessage)
                     .collect(Collectors.joining(System.lineSeparator()));
             requestBldr.post(RequestBody.create(MediaType.parse(PlainTextHttpContentType), lineSeparatedEvents));
         } else {
@@ -430,14 +456,58 @@ public class HttpEventCollectorSender extends TimerTask implements HttpEventColl
         public long writeTimeout = DEFAULT_WRITE_TIMEOUT;
         public long terminationTimeout = DEFAULT_TERMINATION_TIMEOUT;
 
-        public TimeoutSettings() {}
+        public TimeoutSettings() {
+        }
 
-        public TimeoutSettings(long connectTimeout, long callTimeout, long readTimeout, long writeTimeout, long terminationTimeout) {
+        public TimeoutSettings(long connectTimeout, long callTimeout, long readTimeout, long writeTimeout,
+                long terminationTimeout) {
             this.connectTimeout = connectTimeout;
             this.callTimeout = callTimeout;
             this.readTimeout = readTimeout;
             this.writeTimeout = writeTimeout;
             this.terminationTimeout = terminationTimeout;
         }
+    }
+
+    private void configureHttpClientForMutualAuthentication(OkHttpClient.Builder builder) {
+        try {
+            TrustManager[] trustManagers = this.getTrustManagers();
+            SSLContext sslContext = this.getSslContext(trustManagers);
+            builder.sslSocketFactory(sslContext.getSocketFactory(), (X509TrustManager) trustManagers[0]);
+        } catch (Exception e) {
+            throw new RuntimeException(e.getMessage(), e);
+        }
+    }
+
+    private TrustManager[] getTrustManagers() throws Exception {
+        String trustStore = System.getProperty("javax.net.ssl.trustStore");
+        Path keyStorePath = Paths.get(trustStore);
+
+        KeyStore keyStore = KeyStore.getInstance("JKS");
+        try (InputStream stream = Files.newInputStream(keyStorePath)) {
+            keyStore.load(stream, System.getProperty("javax.net.ssl.trustStorePassword").toCharArray());
+        }
+
+        TrustManagerFactory trustManagerFactory = TrustManagerFactory.getInstance("SunX509");
+        trustManagerFactory.init(keyStore);
+        return trustManagerFactory.getTrustManagers();
+    }
+
+    private SSLContext getSslContext(TrustManager[] trustManagers) throws Exception {
+        Path keyStorePath = Paths.get(System.getProperty("javax.net.ssl.keyStore"));
+        String clientCertPassword = System.getProperty("javax.net.ssl.keyStorePassword");
+
+        KeyStore keyStore = KeyStore.getInstance("PKCS12");
+        try (InputStream stream = Files.newInputStream(keyStorePath)) {
+            keyStore.load(stream, clientCertPassword.toCharArray());
+        }
+
+        KeyManagerFactory keyManagerFactory = KeyManagerFactory.getInstance("SunX509");
+        keyManagerFactory.init(keyStore, clientCertPassword.toCharArray());
+
+        SSLContext sslContext = SSLContext.getInstance("TLSv1.2");
+        sslContext.init(keyManagerFactory.getKeyManagers(), trustManagers, new SecureRandom());
+
+        return sslContext;
     }
 }
