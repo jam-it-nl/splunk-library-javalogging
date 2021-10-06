@@ -2,6 +2,12 @@
 pom.xml
         <groupId>nl.jam.com.splunk.logging</groupId>
 
+        <dependency>
+            <groupId>com.squareup.okhttp3</groupId>
+            <artifactId>logging-interceptor</artifactId>
+            <version>4.9.1</version>
+        </dependency>
+
         <repositories>
                 <repository>
                         <id>repsy</id>
@@ -31,10 +37,54 @@ HttpEventCollectorSender
             httpClient = builder.build();
         }
 
+        private boolean enableLogging = false;
+
+        public boolean isEnableLogging() {
+            return enableLogging;
+        }
+
+        public void setEnableLogging(boolean enableLogging) {
+            this.enableLogging = enableLogging;
+        }
+
         private void configureHttpClientForMutualAuthentication(OkHttpClient.Builder builder) {
             try {
                 TrustManager[] trustManagers = this.getTrustManagers();
                 SSLContext sslContext = this.getSslContext(trustManagers);
+
+                if (enableLogging) {
+                    builder.addInterceptor(new Interceptor() {
+                        @Override
+                        public Response intercept(Chain chain) throws IOException {
+                            Request request = chain.request();
+
+                            System.out.println(String.format("%s %s", request.method(), request.url(), request.headers()));
+                            System.out.println(String.format("Headers: %s", request.headers()));
+
+                            Buffer requestBuffer = new Buffer();
+                            request.body().writeTo(requestBuffer);
+                            System.out.println("Content: " + requestBuffer.readUtf8());
+
+                            long startTime = System.nanoTime();
+                            Response response = chain.proceed(request);
+                            long endTime = System.nanoTime();
+
+                            System.out.println("");
+                            System.out.println(String.format("Received response for %s in %.1fms%n%s",
+                                    response.request().url(), (endTime - startTime) / 1e6d, response.headers()));
+
+                            System.out.println(String.format("Statuscode: %s", response.code()));
+
+                            String content = response.body().string();
+                            System.out.println("Content: " + content);
+
+                            MediaType contentType = response.body().contentType();
+                            ResponseBody wrappedBody = ResponseBody.create(content, contentType);
+                            return response.newBuilder().removeHeader("Content-Encoding").body(wrappedBody).build();
+                        }
+                    });
+                }
+
                 builder.sslSocketFactory(sslContext.getSocketFactory(), (X509TrustManager) trustManagers[0]);
             } catch (Exception e) {
                 throw new RuntimeException(e.getMessage(), e);
@@ -76,4 +126,4 @@ HttpEventCollectorSender
 # Reference
 export JAVA_HOME=$(/usr/libexec/java_home -v 11)
 mvn clean install
-mvn deploy
+mvn clean deploy

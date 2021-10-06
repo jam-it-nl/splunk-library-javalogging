@@ -61,6 +61,7 @@ import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
 import okhttp3.ResponseBody;
+import okhttp3.logging.HttpLoggingInterceptor;
 
 /**
  * This is an internal helper class that sends logging events to Splunk http
@@ -469,10 +470,26 @@ public class HttpEventCollectorSender extends TimerTask implements HttpEventColl
         }
     }
 
+    private boolean enableLogging = false;
+
+    public boolean isEnableLogging() {
+        return enableLogging;
+    }
+
+    public void setEnableLogging(boolean enableLogging) {
+        this.enableLogging = enableLogging;
+    }
+
     private void configureHttpClientForMutualAuthentication(OkHttpClient.Builder builder) {
         try {
             TrustManager[] trustManagers = this.getTrustManagers();
             SSLContext sslContext = this.getSslContext(trustManagers);
+
+            if (enableLogging) {
+                HttpLoggingInterceptor httpLoggingInterceptor = new HttpLoggingInterceptor();
+                builder.addInterceptor(httpLoggingInterceptor.setLevel(HttpLoggingInterceptor.Level.BODY));
+            }
+
             builder.sslSocketFactory(sslContext.getSocketFactory(), (X509TrustManager) trustManagers[0]);
         } catch (Exception e) {
             throw new RuntimeException(e.getMessage(), e);
