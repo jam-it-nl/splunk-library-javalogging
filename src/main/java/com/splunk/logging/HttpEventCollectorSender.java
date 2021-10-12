@@ -471,6 +471,15 @@ public class HttpEventCollectorSender extends TimerTask implements HttpEventColl
     }
 
     private boolean enableLogging = false;
+    private boolean configureHttpClientForMutualAuthentication = false;
+
+    public boolean isConfigureHttpClientForMutualAuthentication() {
+        return configureHttpClientForMutualAuthentication;
+    }
+
+    public void setConfigureHttpClientForMutualAuthentication(boolean configureHttpClientForMutualAuthentication) {
+        this.configureHttpClientForMutualAuthentication = configureHttpClientForMutualAuthentication;
+    }
 
     public boolean isEnableLogging() {
         return enableLogging;
@@ -482,6 +491,10 @@ public class HttpEventCollectorSender extends TimerTask implements HttpEventColl
 
     private void configureHttpClientForMutualAuthentication(OkHttpClient.Builder builder) {
         try {
+            if (!this.configureHttpClientForMutualAuthentication) {
+                return;
+            }
+
             TrustManager[] trustManagers = this.getTrustManagers();
             SSLContext sslContext = this.getSslContext(trustManagers);
 

@@ -38,6 +38,15 @@ HttpEventCollectorSender
         }
 
         private boolean enableLogging = false;
+        private boolean configureHttpClientForMutualAuthentication = false;
+
+        public boolean isConfigureHttpClientForMutualAuthentication() {
+            return configureHttpClientForMutualAuthentication;
+        }
+
+        public void setConfigureHttpClientForMutualAuthentication(boolean configureHttpClientForMutualAuthentication) {
+            this.configureHttpClientForMutualAuthentication = configureHttpClientForMutualAuthentication;
+        }
 
         public boolean isEnableLogging() {
             return enableLogging;
@@ -49,40 +58,16 @@ HttpEventCollectorSender
 
         private void configureHttpClientForMutualAuthentication(OkHttpClient.Builder builder) {
             try {
+                if (!this.configureHttpClientForMutualAuthentication) {
+                    return;
+                }
+
                 TrustManager[] trustManagers = this.getTrustManagers();
                 SSLContext sslContext = this.getSslContext(trustManagers);
 
                 if (enableLogging) {
-                    builder.addInterceptor(new Interceptor() {
-                        @Override
-                        public Response intercept(Chain chain) throws IOException {
-                            Request request = chain.request();
-
-                            System.out.println(String.format("%s %s", request.method(), request.url(), request.headers()));
-                            System.out.println(String.format("Headers: %s", request.headers()));
-
-                            Buffer requestBuffer = new Buffer();
-                            request.body().writeTo(requestBuffer);
-                            System.out.println("Content: " + requestBuffer.readUtf8());
-
-                            long startTime = System.nanoTime();
-                            Response response = chain.proceed(request);
-                            long endTime = System.nanoTime();
-
-                            System.out.println("");
-                            System.out.println(String.format("Received response for %s in %.1fms%n%s",
-                                    response.request().url(), (endTime - startTime) / 1e6d, response.headers()));
-
-                            System.out.println(String.format("Statuscode: %s", response.code()));
-
-                            String content = response.body().string();
-                            System.out.println("Content: " + content);
-
-                            MediaType contentType = response.body().contentType();
-                            ResponseBody wrappedBody = ResponseBody.create(content, contentType);
-                            return response.newBuilder().removeHeader("Content-Encoding").body(wrappedBody).build();
-                        }
-                    });
+                    HttpLoggingInterceptor httpLoggingInterceptor = new HttpLoggingInterceptor();
+                    builder.addInterceptor(httpLoggingInterceptor.setLevel(HttpLoggingInterceptor.Level.BODY));
                 }
 
                 builder.sslSocketFactory(sslContext.getSocketFactory(), (X509TrustManager) trustManagers[0]);
