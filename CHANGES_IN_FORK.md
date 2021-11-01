@@ -1,6 +1,8 @@
 # Changes made to the library
 pom.xml
-        <groupId>nl.jam.com.splunk.logging</groupId>
+    <groupId>nl.jam.com.splunk.logging</groupId>
+    <artifactId>splunk-library-javalogging</artifactId>
+    <version>patched.1.11.0</version>
 
         <dependency>
             <groupId>com.squareup.okhttp3</groupId>
@@ -57,26 +59,30 @@ HttpEventCollectorSender
         }
 
         private void configureHttpClientForMutualAuthentication(OkHttpClient.Builder builder) {
-            try {
-                if (!this.configureHttpClientForMutualAuthentication) {
-                    return;
-                }
-
-                TrustManager[] trustManagers = this.getTrustManagers();
-                SSLContext sslContext = this.getSslContext(trustManagers);
-
-                if (enableLogging) {
-                    HttpLoggingInterceptor httpLoggingInterceptor = new HttpLoggingInterceptor();
-                    builder.addInterceptor(httpLoggingInterceptor.setLevel(HttpLoggingInterceptor.Level.BODY));
-                }
-
-                builder.sslSocketFactory(sslContext.getSocketFactory(), (X509TrustManager) trustManagers[0]);
-            } catch (Exception e) {
-                throw new RuntimeException(e.getMessage(), e);
+        try {
+            if (!this.configureHttpClientForMutualAuthentication) {
+                Logger.getLogger(this.getClass().getSimpleName()).log(Level.WARNING, "Not configuring Http Client for MutualAuthentication");
+                return;
             }
-        }
 
-        private TrustManager[] getTrustManagers() throws Exception {
+            Logger.getLogger(this.getClass().getSimpleName()).log(Level.WARNING, "Configuring Http Client for MutualAuthentication");
+
+            TrustManager[] trustManagers = this.getTrustManagers();
+            SSLContext sslContext = this.getSslContext(trustManagers);
+
+            if (this.enableLogging) {
+                HttpLoggingInterceptor httpLoggingInterceptor = new HttpLoggingInterceptor();
+                builder.addInterceptor(httpLoggingInterceptor.setLevel(HttpLoggingInterceptor.Level.BODY));
+            }
+
+            builder.sslSocketFactory(sslContext.getSocketFactory(), (X509TrustManager) trustManagers[0]);
+        } catch (Exception e) {
+            throw new RuntimeException(e.getMessage(), e);
+        }
+    }
+
+    private TrustManager[] getTrustManagers() throws Exception {
+        try {
             String trustStore = System.getProperty("javax.net.ssl.trustStore");
             Path keyStorePath = Paths.get(trustStore);
 
@@ -88,9 +94,25 @@ HttpEventCollectorSender
             TrustManagerFactory trustManagerFactory = TrustManagerFactory.getInstance("SunX509");
             trustManagerFactory.init(keyStore);
             return trustManagerFactory.getTrustManagers();
-        }
+        } catch (Exception e) {
+            Logger.getLogger(this.getClass().getSimpleName()).log(Level.WARNING, "Failed getting TrustManagers, falling back to default: " + e.getMessage());
+            return new TrustManager[] {new X509TrustManager() {
+                @Override
+                public void checkClientTrusted(java.security.cert.X509Certificate[] chain, String authType) throws CertificateException {}
 
-        private SSLContext getSslContext(TrustManager[] trustManagers) throws Exception {
+                @Override
+                public void checkServerTrusted(java.security.cert.X509Certificate[] chain, String authType) throws CertificateException {}
+
+                @Override
+                public java.security.cert.X509Certificate[] getAcceptedIssuers() {
+                    return new java.security.cert.X509Certificate[] {};
+                }
+            }};
+        }
+    }
+
+    private SSLContext getSslContext(TrustManager[] trustManagers) throws Exception {
+        try {
             Path keyStorePath = Paths.get(System.getProperty("javax.net.ssl.keyStore"));
             String clientCertPassword = System.getProperty("javax.net.ssl.keyStorePassword");
 
@@ -106,7 +128,13 @@ HttpEventCollectorSender
             sslContext.init(keyManagerFactory.getKeyManagers(), trustManagers, new SecureRandom());
 
             return sslContext;
+        } catch (Exception e) {
+            Logger.getLogger(this.getClass().getSimpleName()).log(Level.WARNING, "Failed getting SslContext, falling back to default: " + e.getMessage());
+            SSLContext sslContext = SSLContext.getInstance("TLSv1.2");
+            sslContext.init(null, trustManagers, new java.security.SecureRandom());
+            return sslContext;
         }
+    }
 
 # Reference
 export JAVA_HOME=$(/usr/libexec/java_home -v 11)
