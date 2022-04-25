@@ -148,6 +148,7 @@ public final class HttpEventCollectorLog4jAppender extends AbstractAppender
             @PluginAttribute("disableCertificateValidation") final String disableCertificateValidation,
             @PluginAttribute("eventBodySerializer") final String eventBodySerializer,
             @PluginAttribute("eventHeaderSerializer") final String eventHeaderSerializer,
+            @PluginAttribute("errorCallback") final String errorCallback,
             @PluginAttribute(value = "includeLoggerName", defaultBoolean = true) final boolean includeLoggerName,
             @PluginAttribute(value = "includeThreadName", defaultBoolean = true) final boolean includeThreadName,
             @PluginAttribute(value = "includeMDC", defaultBoolean = true) final boolean includeMDC,
@@ -203,6 +204,10 @@ public final class HttpEventCollectorLog4jAppender extends AbstractAppender
                     .build();
         }
 
+        if (errorCallback != null) {
+            HttpEventCollectorErrorHandler.registerClassName(errorCallback);
+        }
+
         final boolean ignoreExceptionsBool = Boolean.getBoolean(ignoreExceptions);
 
         return new HttpEventCollectorLog4jAppender(
@@ -243,6 +248,10 @@ public final class HttpEventCollectorLog4jAppender extends AbstractAppender
                 (!includeException || event.getThrown() == null) ? null : event.getThrown().getMessage(),
                 includeMarker ? event.getMarker() : null
         );
+    }
+
+    public void flush() {
+        sender.flush();
     }
 
     @Override
