@@ -14,17 +14,19 @@
  * under the License.
  */
 
-import java.util.*;
-
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
 import com.splunk.logging.HttpEventCollectorErrorHandler;
 import com.splunk.logging.HttpEventCollectorEventInfo;
-
 import org.apache.commons.lang3.StringUtils;
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.List;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 
 public final class HttpEventCollector_JavaLoggingTest {
@@ -55,6 +57,70 @@ public final class HttpEventCollector_JavaLoggingTest {
         logger.info(jsonMsg);
 
         TestUtil.verifyOneAndOnlyOneEventSentToSplunk(jsonMsg);
+
+        TestUtil.deleteHttpEventCollectorToken(httpEventCollectorName);
+    }
+
+    /**
+     * sending a message via httplogging using java.logging to splunk
+     */
+    @Test
+    public void canSendExceptionUsingJavaLogging() throws Exception {
+        TestUtil.enableHttpEventCollector();
+
+        String token = TestUtil.createHttpEventCollectorToken(httpEventCollectorName);
+
+        String loggerName = "splunkLoggerNoOptions";
+        HashMap<String, String> userInputs = new HashMap<String, String>();
+        userInputs.put("user_httpEventCollector_token", token);
+        userInputs.put("user_logger_name", loggerName);
+        TestUtil.resetJavaLoggingConfiguration("logging_template.properties", "logging.properties", userInputs);
+
+        Date date = new Date();
+        String jsonMsg = String.format("{EventDate:%s, EventMsg:'this is a test event for java logging canSendEventUsingJavaLogging}", date.toString());
+
+        Logger logger = Logger.getLogger(loggerName);
+        logger.log(Level.SEVERE, jsonMsg, new RuntimeException("This is RuntimeException"));
+
+        TestUtil.verifyOneAndOnlyOneEventSentToSplunk(jsonMsg);
+
+        TestUtil.deleteHttpEventCollectorToken(httpEventCollectorName);
+    }
+
+    /**
+     * Sending a message via httplogging using java.logging to Splunk.
+     *
+     * @throws Exception
+     */
+    @Test
+    public void canSendCommentedEventStringUsingJavaLogging() throws Exception {
+        TestUtil.enableHttpEventCollector();
+
+        String token = TestUtil.createHttpEventCollectorToken(httpEventCollectorName);
+
+        String loggerName = "splunkLoggerWithCommentedEventMessages";
+        HashMap<String, String> userInputs = new HashMap<String, String>();
+        userInputs.put("user_httpEventCollector_token", token);
+        userInputs.put("user_logger_name", loggerName);
+        TestUtil.resetJavaLoggingConfiguration("logging_template.properties", "logging.properties", userInputs);
+
+        List<String> messages = new ArrayList<>();
+
+        Date date = new Date();
+        Logger logger = Logger.getLogger(loggerName);
+        String commentedEventMessage = "// This is a single line commented string. Dated: " + date.toString();
+        logger.info(commentedEventMessage);
+        messages.add(commentedEventMessage);
+
+        commentedEventMessage = "/* This is a document type commented string. */ Dated: " + date.toString();
+        logger.severe(commentedEventMessage);
+        messages.add(commentedEventMessage);
+
+        commentedEventMessage = "## This is a normal commented string. Dated: " + date.toString();
+        logger.warning(commentedEventMessage);
+        messages.add(commentedEventMessage);
+
+        TestUtil.verifyEventsSentToSplunk(messages);
 
         TestUtil.deleteHttpEventCollectorToken(httpEventCollectorName);
     }

@@ -15,13 +15,19 @@ package com.splunk.logging;
  * under the License.
  */
 
+import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.pattern.MarkerConverter;
 import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.classic.spi.IThrowableProxy;
+import ch.qos.logback.classic.spi.StackTraceElementProxy;
 import ch.qos.logback.core.AppenderBase;
 import ch.qos.logback.core.Layout;
+import com.google.gson.Gson;
 import com.splunk.logging.hec.MetadataTags;
 
-import java.util.*;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
  * Logback Appender which writes its events to Splunk http event collector rest endpoint.
@@ -153,6 +159,36 @@ public class HttpEventCollectorLogbackAppender<E> extends AppenderBase<E> {
             event.getCallerData();
         }
 
+        boolean isExceptionOccured = false;
+        String exceptionDetail = null;
+
+        /*
+        Exception details are only populated when any ERROR encountered & exception is actually thrown
+         */
+        try {
+            IThrowableProxy throwableProxy = event.getThrowableProxy();
+            if (Level.ERROR.isGreaterOrEqual(event.getLevel()) && throwableProxy != null) {
+                // Exception thrown in application is wrapped with relevant information instead of just a message.
+                Map<Object, Object> exceptionDetailMap = new LinkedHashMap<>();
+
+                exceptionDetailMap.put("detailMessage", throwableProxy.getMessage());
+                exceptionDetailMap.put("exceptionClass", throwableProxy.getClassName());
+
+                // Retrieving first element from elements array is because the throws exception detail would be available as a first element.
+                StackTraceElementProxy[] elements = throwableProxy.getStackTraceElementProxyArray();
+                if (elements != null && elements.length > 0 && elements[0] != null) {
+                    exceptionDetailMap.put("fileName", elements[0].getStackTraceElement().getFileName());
+                    exceptionDetailMap.put("methodName", elements[0].getStackTraceElement().getMethodName());
+                    exceptionDetailMap.put("lineNumber", String.valueOf(elements[0].getStackTraceElement().getLineNumber()));
+                }
+
+                exceptionDetail = new Gson().toJson(exceptionDetailMap);
+                isExceptionOccured = true;
+            }
+        } catch (Exception e) {
+            // No actions here
+        }
+
         MarkerConverter c = new MarkerConverter();
         if (this.started) {
             this.sender.send(
@@ -162,7 +198,7 @@ public class HttpEventCollectorLogbackAppender<E> extends AppenderBase<E> {
                     _includeLoggerName ? event.getLoggerName() : null,
                     _includeThreadName ? event.getThreadName() : null,
                     _includeMDC ? event.getMDCPropertyMap() : null,
-                    (!_includeException || event.getThrowableProxy() == null) ? null : event.getThrowableProxy().getMessage(),
+                    (_includeException && isExceptionOccured) ? exceptionDetail : null,
                     c.convert(event)
             );
         }

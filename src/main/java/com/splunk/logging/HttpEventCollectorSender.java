@@ -65,7 +65,7 @@ public class HttpEventCollectorSender extends TimerTask implements HttpEventColl
     private static final String AuthorizationHeaderScheme = "Splunk %s";
     private static final String HttpEventCollectorUriPath = "/services/collector/event/1.0";
     private static final String HttpRawCollectorUriPath = "/services/collector/raw";
-    private static final String JsonHttpContentType = "application/json; charset=utf-8";
+    private static final String JsonHttpContentType = "application/json; profile=\"urn:splunk:event:1.0\"; charset=utf-8";
     private static final String PlainTextHttpContentType = "plain/text; charset=utf-8";
     private static final String SendModeSequential = "sequential";
     private static final String SendModeSParallel = "parallel";
@@ -341,12 +341,14 @@ public class HttpEventCollectorSender extends TimerTask implements HttpEventColl
         // set timeouts
         builder.connectTimeout(timeoutSettings.connectTimeout, TimeUnit.MILLISECONDS).callTimeout(timeoutSettings.callTimeout, TimeUnit.MILLISECONDS).readTimeout(timeoutSettings.readTimeout, TimeUnit.MILLISECONDS).writeTimeout(timeoutSettings.writeTimeout, TimeUnit.MILLISECONDS);
 
+        Dispatcher dispatcher = new Dispatcher();
+
         // limit max number of async requests in sequential mode
         if (sendMode == SendMode.Sequential) {
-            Dispatcher dispatcher = new Dispatcher();
             dispatcher.setMaxRequests(1);
-            builder.dispatcher(dispatcher);
         }
+
+        builder.dispatcher(dispatcher);
 
         if (disableCertificateValidation) {
             final TrustManager[] trustAllCerts = new TrustManager[] {new X509TrustManager() {

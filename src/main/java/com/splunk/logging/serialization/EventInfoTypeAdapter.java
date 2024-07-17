@@ -1,36 +1,37 @@
 /*
- Copyright © 2019 Splunk Inc.
- SPLUNK CONFIDENTIAL – Use or disclosure of this material in whole or in part
- without a valid written license from Splunk Inc. is PROHIBITED.
+ * Copyright © 2019 Splunk Inc. SPLUNK CONFIDENTIAL – Use or disclosure of this material in whole or in part without a valid written license from Splunk Inc. is PROHIBITED.
  */
 package com.splunk.logging.serialization;
 
-import com.google.gson.*;
-import com.splunk.logging.EventBodySerializer;
-import com.splunk.logging.HttpEventCollectorEventInfo;
-
 import java.lang.reflect.Type;
 import java.util.HashMap;
-import java.util.Locale;
 import java.util.Map;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonNull;
+import com.google.gson.JsonParser;
+import com.google.gson.JsonSerializationContext;
+import com.google.gson.JsonSerializer;
+import com.google.gson.JsonSyntaxException;
+import com.splunk.logging.HttpEventCollectorEventInfo;
 
 public class EventInfoTypeAdapter implements JsonSerializer<HttpEventCollectorEventInfo> {
 
     @Override
     public JsonElement serialize(HttpEventCollectorEventInfo src, Type typeOfSrc, JsonSerializationContext context) {
         Map<String, Object> event = new HashMap<>();
-        // TODO: JsonParser constructor is deprecated in favor of static methods in gson 1.8.6,
-        // but Spring Boot does some Gradle magic that downgrades (as of 11/2019) to 1.8.5. This
-        // should move to static methods once 1.8.6 has widespread adoption.
-        JsonParser parser = new JsonParser();
+
         if (src.getSeverity() != null) {
             event.put("severity", src.getSeverity());
         }
 
         // Always put a message, even if it's empty.
         try {
-            // TODO: Move to JsonParser.parseString (see note above)
-            event.put("message", parser.parse(src.getMessage()));
+            JsonElement parsed = JsonParser.parseString(src.getMessage());
+            if (parsed instanceof JsonNull && !src.getMessage().isEmpty()) {
+                event.put("message", src.getMessage());
+            } else {
+                event.put("message", parsed);
+            }
         } catch (JsonSyntaxException e) {
             event.put("message", src.getMessage());
         }
@@ -43,7 +44,7 @@ public class EventInfoTypeAdapter implements JsonSerializer<HttpEventCollectorEv
             event.put("thread", src.getThreadName());
         }
 
-        if (src.getExceptionMessage() != null && ! src.getExceptionMessage().isEmpty()) {
+        if (src.getExceptionMessage() != null && !src.getExceptionMessage().isEmpty()) {
             event.put("exception", src.getExceptionMessage());
         }
 
