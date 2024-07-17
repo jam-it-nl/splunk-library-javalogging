@@ -432,6 +432,12 @@ public class HttpEventCollectorSender extends TimerTask implements HttpEventColl
                         } catch (IOException e) {
                             reply = e.getMessage();
                         }
+
+                        StringBuilder headersStringBuilder = new StringBuilder();
+                        for (String name : response.headers().names()) {
+                            headersStringBuilder.append("\n").append(name).append(": ").append(response.header(name));
+                        }
+                        reply += "\n Headers:" + headersStringBuilder.toString();
                     }
                 }
                 callback.completed(httpStatusCode, reply);
